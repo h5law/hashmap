@@ -1,0 +1,6 @@
+.DS_Store
+nohup.out
+
+./inc/map.o
+./tests/map_test
+./tests/vector_test

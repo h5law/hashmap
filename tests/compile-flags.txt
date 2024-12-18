@@ -1,0 +1,3 @@
+-std=c2x
+-xc
+-I../src/

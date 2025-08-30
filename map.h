@@ -30,8 +30,6 @@ uint64_t fnv1a_block_hash(const unsigned char *data, size_t len);
 struct hashmap *hashmap_init();
 int  hashmap_set(struct hashmap *map, const unsigned char *key, size_t key_len,
                  uintptr_t value);
-void add_bucket(struct bucket *b1, struct bucket *b2);
-int  find_bucket(struct bucket *b, const unsigned char *key, size_t key_len);
 uintptr_t hashmap_get(struct hashmap *map, const unsigned char *key,
                       size_t key_len);
 void      hashmap_deinit(struct hashmap *map, int dealloc);

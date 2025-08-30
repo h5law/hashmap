@@ -26,7 +26,7 @@ struct vector {
 
 struct vector *vector_init()
 {
-    struct vector *vec = {0};
+    struct vector *vec = malloc(sizeof(struct vector));
     vec->buffer        = malloc(VECTOR_DEFAULT_CAPACITY * sizeof(uintptr_t));
     return vec;
 }
@@ -65,6 +65,7 @@ void vector_deinit(struct vector *vec, int dealloc)
         for (size_t i = 0; i < vec->capacity; ++i)
             free(( void * )vec->buffer[i]);
     free(vec->buffer);
+    free(vec);
 }
 
 struct bucket {
@@ -82,8 +83,9 @@ struct hashmap {
 
 struct hashmap *hashmap_init()
 {
-    struct hashmap *map = {0};
+    struct hashmap *map = malloc(sizeof(struct hashmap));
     struct vector  *vec = vector_init();
+    map->vec = vec;
     return map;
 }
 
@@ -126,6 +128,9 @@ uint64_t fnv1a_block_hash(const unsigned char *data, size_t len)
     return hash;
 }
 
+void add_bucket(struct bucket *b1, struct bucket *b2);
+int  find_bucket(struct bucket *b, const unsigned char *key, size_t key_len);
+
 void add_bucket(struct bucket *b1, struct bucket *b2)
 {
     struct bucket *b = b1->next;
@@ -135,6 +140,16 @@ void add_bucket(struct bucket *b1, struct bucket *b2)
         b = b->next;
     }
     b->next = b2;
+}
+
+int find_bucket(struct bucket *b, const unsigned char *key, size_t key_len)
+{
+    do {
+        if (memcmp(b->key, key, key_len) == 0 && b->key_len == key_len)
+            return 0;
+        b = b->next;
+    } while (b->next);
+    return -1;
 }
 
 int hashmap_set(struct hashmap *map, const unsigned char *key, size_t key_len,
@@ -195,19 +210,9 @@ int hashmap_set(struct hashmap *map, const unsigned char *key, size_t key_len,
     return rc;
 }
 
-int find_bucket(struct bucket *b, const unsigned char *key, size_t key_len)
-{
-    do {
-        if (memcmp(b->key, key, key_len) == 0 && b->key_len == key_len)
-            return 0;
-        b = b->next;
-    } while (b->next);
-    return -1;
-}
-
 uintptr_t hashmap_get(struct hashmap *map, const unsigned char *key, size_t key_len)
 {
-    uint64_t hash  = fnv1a_block_hash(b->key, b->key_len);
+    uint64_t hash  = fnv1a_block_hash(key, key_len);
     size_t   index = HASH_REDUCE(hash, map->vec);
     uintptr_t val = vector_get(map->vec, index);
     if (val)
@@ -231,6 +236,69 @@ void hashmap_deinit(struct hashmap *map, int dealloc)
         }
     }
     vector_deinit(map->vec, 0); /* Don't need to free values again */
+    free(map);
 }
+
+#ifdef DEBUG_TESTS
+
+#define PRINT_VECTOR(vec) \
+    for (size_t i = 0; i < (size_t)(struct vector *)vec->capacity; ++i) \
+        DEBUG("%lx ",(uintptr_t)(struct vector *)vec->buffer + (i * sizeof(uintptr_t)))
+
+/*
+ * __________
+ * |
+ * |
+ * |   0
+ * |
+ * |
+ * __________
+ * |
+ * |
+ * |   1
+ * |
+ * |
+ * __________
+ * |
+ * |
+ * |   2
+ * |
+ * |
+ * __________
+ * |
+ * |
+ * |   3
+ * |
+ * |
+ * __________
+ * |
+ * |
+ * |   4
+ * |
+ * |
+ * __________
+ * |
+ * |
+ * |   5
+ * |
+ * |
+ * __________
+ * |
+ * |
+ * |   6
+ * |
+ * |
+ * __________
+ */
+
+int main(void)
+{
+    struct vector *vec = vector_init();
+    PRINT_VECTOR(vec);
+
+    return 0;
+}
+
+#endif /* DBEUG_TESTS */
 
 /* vim: ft=c ts=4 sts=4 sw=4 et ai cin */

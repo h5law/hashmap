@@ -1,11 +1,13 @@
-CFLAGS = -O3 -Ofast -MD -g -DTEST_IMPLEMENTATION=1
+CFLAGS = -O3 -Ofast -DDEBUG_TESTS
+# CFLAGS += -Wall -Wpedantic -Werror
+# CFLAGS += -g -MD
 
 all: clean test
 
 test:
-	$(CC) $(CFLAGS) -o test map.c
+	$(CC) $(CFLAGS) -o test map.c && ./test
 
 clean:
-	rm test
+	rm -f test
 
 .PHONY: all clean test

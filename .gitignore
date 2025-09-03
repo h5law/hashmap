@@ -2,3 +2,5 @@
 *.d
 *.swp
 *.un~
+test
+test.core

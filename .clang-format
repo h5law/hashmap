@@ -20,7 +20,6 @@ AlignConsecutiveDeclarations:
   Enabled: true
   AcrossEmptyLines: false
   AcrossComments: true
-  AlignFunctionDeclarations: true
 AlignConsecutiveBitFields:
   Enabled: true
   AcrossEmptyLines: true

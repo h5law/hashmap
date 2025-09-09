@@ -1,8 +1,8 @@
 /* $hashmap: map.c */
 
-#include <string.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "map.h"
 
@@ -18,34 +18,29 @@
 #define DEBUG(...)
 #endif
 
-struct vector {
-    uintptr_t *buffer;
-    size_t     capacity;
-    size_t     count;
-};
-
-struct vector *vector_init()
+struct vector *vector_init(void)
 {
-    struct vector *vec = malloc(sizeof(struct vector));
-    vec->buffer        = malloc(VECTOR_DEFAULT_CAPACITY * sizeof(uintptr_t));
+    struct vector *vec = calloc(1, sizeof(struct vector));
+    vec->buffer        = calloc(1, VECTOR_DEFAULT_CAPACITY * sizeof(uintptr_t));
+    vec->capacity      = VECTOR_DEFAULT_CAPACITY;
     return vec;
 }
 
 int vector_set(struct vector *vec, uintptr_t value, size_t index)
 {
     size_t new_count = vec->count + 1;
-    if (new_count > VECTOR_MAX_CAPACITY)
-        return -1;
     if (index > vec->capacity)
+        return -1;
+    if (new_count > VECTOR_MAX_CAPACITY)
         return -2;
     vec->buffer[index] = value;
     vec->count         = new_count;
-    size_t new_cap     = VECTOR_RESIZE_FACTOR * new_count * sizeof(uintptr_t);
-    if ((4 * new_count >= 3 * vec->capacity) && new_cap < VECTOR_MAX_CAPACITY) {
-        vec->buffer = realloc(vec->buffer, VECTOR_RESIZE_FACTOR * new_count *
-                                                   sizeof(uintptr_t));
+    if ((4 * new_count >= 3 * vec->capacity) &&
+        (vec->capacity << 1) < VECTOR_MAX_CAPACITY) {
+        size_t new_cap = vec->capacity << 1;
+        vec->buffer    = realloc(vec->buffer, new_cap * sizeof(uintptr_t));
         memset(vec->buffer + (vec->capacity * sizeof(uintptr_t)), 0,
-               new_cap - vec->capacity + 1);
+               (new_cap / 2) * sizeof(uintptr_t));
         vec->capacity = new_cap;
         return 1;
     }
@@ -59,6 +54,18 @@ uintptr_t vector_get(struct vector *vec, size_t index)
     return vec->buffer[index];
 }
 
+int vector_delete(struct vector *vec, size_t index)
+{
+    if (vec->count < 1)
+        return 0;
+    if (index >= vec->capacity)
+        return -1;
+    free(( void * )vec->buffer[index]);
+    vec->buffer[index] = 0;
+    --vec->count;
+    return 0;
+}
+
 void vector_deinit(struct vector *vec, int dealloc)
 {
     if (dealloc)
@@ -68,24 +75,11 @@ void vector_deinit(struct vector *vec, int dealloc)
     free(vec);
 }
 
-struct bucket {
-    struct bucket *next;
-    const void    *key;
-    size_t         key_len;
-    uint64_t       hash;
-    uintptr_t      value;
-};
-
-struct hashmap {
-    struct vector *vec;
-    size_t         size;
-};
-
-struct hashmap *hashmap_init()
+struct hashmap *hashmap_init(void)
 {
     struct hashmap *map = malloc(sizeof(struct hashmap));
     struct vector  *vec = vector_init();
-    map->vec = vec;
+    map->vec            = vec;
     return map;
 }
 
@@ -129,7 +123,8 @@ uint64_t fnv1a_block_hash(const unsigned char *data, size_t len)
 }
 
 void add_bucket(struct bucket *b1, struct bucket *b2);
-int  find_bucket(struct bucket *b, const unsigned char *key, size_t key_len);
+int  find_bucket(struct bucket *b, uint64_t hash);
+int  delete_bucket(struct bucket *b, uint64_t hash);
 
 void add_bucket(struct bucket *b1, struct bucket *b2)
 {
@@ -142,14 +137,29 @@ void add_bucket(struct bucket *b1, struct bucket *b2)
     b->next = b2;
 }
 
-int find_bucket(struct bucket *b, const unsigned char *key, size_t key_len)
+int find_bucket(struct bucket *b, uint64_t hash)
 {
     do {
-        if (memcmp(b->key, key, key_len) == 0 && b->key_len == key_len)
+        if (b->hash == hash)
             return 0;
         b = b->next;
     } while (b->next);
     return -1;
+}
+
+int delete_bucket(struct bucket *b, uint64_t hash)
+{
+    struct bucket *tmp = NULL;
+    do {
+        if (b->hash == hash)
+            goto delete;
+        b = b->next;
+    } while (b->next);
+    return -1;
+    delete : tmp = b->next;
+    free(( void * )b);
+    b = tmp;
+    return 0;
 }
 
 int hashmap_set(struct hashmap *map, const unsigned char *key, size_t key_len,
@@ -210,14 +220,28 @@ int hashmap_set(struct hashmap *map, const unsigned char *key, size_t key_len,
     return rc;
 }
 
-uintptr_t hashmap_get(struct hashmap *map, const unsigned char *key, size_t key_len)
+uintptr_t hashmap_get(struct hashmap *map, const unsigned char *key,
+                      size_t key_len)
 {
-    uint64_t hash  = fnv1a_block_hash(key, key_len);
-    size_t   index = HASH_REDUCE(hash, map->vec);
-    uintptr_t val = vector_get(map->vec, index);
+    uint64_t  hash  = fnv1a_block_hash(key, key_len);
+    size_t    index = HASH_REDUCE(hash, map->vec);
+    uintptr_t val   = vector_get(map->vec, index);
     if (val)
         return val;
-    return find_bucket((struct bucket *)val, key, key_len);
+    return find_bucket(( struct bucket * )val, hash);
+}
+
+int hashmap_delete(struct hashmap *map, const unsigned char *key,
+                   size_t key_len)
+{
+    uint64_t  hash  = fnv1a_block_hash(key, key_len);
+    size_t    index = HASH_REDUCE(hash, map->vec);
+    uintptr_t val   = vector_get(map->vec, index);
+    if (val) {
+        vector_delete(map->vec, index);
+        return 0;
+    }
+    return delete_bucket(( struct bucket * )val, hash);
 }
 
 void hashmap_deinit(struct hashmap *map, int dealloc)
@@ -241,64 +265,41 @@ void hashmap_deinit(struct hashmap *map, int dealloc)
 
 #ifdef DEBUG_TESTS
 
-#define PRINT_VECTOR(vec) \
-    for (size_t i = 0; i < (size_t)(struct vector *)vec->capacity; ++i) \
-        DEBUG("%lx ",(uintptr_t)(struct vector *)vec->buffer + (i * sizeof(uintptr_t)))
+#include <assert.h>
 
-/*
- * __________
- * |
- * |
- * |   0
- * |
- * |
- * __________
- * |
- * |
- * |   1
- * |
- * |
- * __________
- * |
- * |
- * |   2
- * |
- * |
- * __________
- * |
- * |
- * |   3
- * |
- * |
- * __________
- * |
- * |
- * |   4
- * |
- * |
- * __________
- * |
- * |
- * |   5
- * |
- * |
- * __________
- * |
- * |
- * |   6
- * |
- * |
- * __________
- */
+#define ASSERT(stmt)                                                           \
+    do {                                                                       \
+        DEBUG("%s\n", #stmt);                                                  \
+        assert(stmt);                                                          \
+    } while (0)
+
+#define PRINT_VECTOR(vec)                                                      \
+    for (size_t i = 0; i < ( size_t )( struct vector * )vec->capacity; ++i)    \
+    DEBUG("%lx ", ( uintptr_t )( struct vector * )vec->buffer +                \
+                          (i * sizeof(uintptr_t)))
 
 int main(void)
 {
     struct vector *vec = vector_init();
-    PRINT_VECTOR(vec);
+    ASSERT(vec != NULL);
+    /* PRINT_VECTOR(vec); */
+
+    uint64_t val = 0xDEADBEEF;
+    for (size_t i = 0; i < 47; ++i) {
+        ASSERT(vector_set(vec, ( uintptr_t )&val, i) >= 0);
+    }
+    ASSERT(vec->count == 47);
+    ASSERT(vec->capacity == 64);
+    /* PRINT_VECTOR(vec); */
+    ASSERT(vector_set(vec, ( uintptr_t )&val, 47) >= 0);
+    ASSERT(vec->capacity == 128);
+
+    vector_deinit(vec, 1);
+    ASSERT(vec == NULL);
 
     return 0;
 }
 
 #endif /* DBEUG_TESTS */
 
-/* vim: ft=c ts=4 sts=4 sw=4 et ai cin */
+// vim: ft=c ts=4 sts=4 sw=4 et ai cin
